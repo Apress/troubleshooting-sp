@@ -1,0 +1,246 @@
+﻿######################
+
+#Set passwords from command line
+
+Net user USERNAME PASSWORD /DOMAIN 
+
+######################
+
+#Open IIS 6.0 from the command line or a run bar
+
+inetmgr6
+
+######################
+
+#Getting service status from the command line 
+
+sc query type= service state= all > c:\myDirectory\allserviceslist.txt
+
+sc query type= service state= inactive > c:\myDirectory\Stoppedserviceslist.txt
+
+sc query type= service > c:\myDirectory\Runningserviceslist.txt 
+
+######################
+
+#Get help in powershell
+
+Get-Help Get-service
+
+######################
+
+#Get a report from all servers in the farm about event ID 6005
+
+$spservers=Get-SPServer | where {$_.Role -ne “Invalid”}
+
+Foreach ($spserver in $spservers)
+
+{
+
+$filename=$spserver.name
+
+Get-EventLog -LogName "System" | where-object {$_.EventID -eq 6005} | select MachineName, TimeGenerated, Source, Message
+
+} 
+
+######################
+
+#Powershell to get the processes on a server and sort output by virtual memory size
+
+Get-process | sort virtualmemorysize –Descending 
+
+######################
+
+#List out the processes running in IIS
+
+appcmd list wp
+
+######################
+
+#Find system restart Time
+
+Systeminfo | find “System Boot Time:”
+
+######################
+
+#Find out when logging stopped, err when the machine was shutdown
+
+Get-EventLog -LogName "System" | where-object {$_.EventID -eq 6006} | select MachineName, TimeGenerated, Message –First 2 | FT MachineName, TimeGenerated, Message –wrap 
+
+######################
+
+#Find out when logging started, err when the machine was started
+
+Get-EventLog -LogName "System" | where-object {$_.EventID -eq 6005} | select MachineName, TimeGenerated, Message –First 2 | FT MachineName, TimeGenerated, Message –wrap 
+
+######################
+
+#Open event viewer
+
+eventvwr.msc
+
+######################
+
+#Open Systeminfo
+
+msinfo32
+
+######################
+
+#find virtual memory on a remote server
+
+systeminfo /S servename | find "Virtural Memory:"
+
+######################
+
+#Open local users and groups
+
+lusrmgr.msc
+
+######################
+
+#Find members of a local groups
+
+net localgroup <groupName>
+
+net localgroup administrators
+
+######################
+
+#Open network settings
+
+run bar then "control netconnections"
+
+ncpa.cpl
+
+######################
+
+#Open windows firewall console
+
+wf.msc
+
+######################
+
+#handy command line tools
+
+computer management console (compmgmt.msc) 
+disk management (diskmgmt.msc)
+Task Scheduler (taskschd.msc)
+performance monitor (perfmon.msc or perfomon)
+device manager (devmgmt.msc)
+WMI Control (wmimgmt.msc)
+
+######################
+
+#Info about your SQL server
+
+SELECT
+
+SERVERPROPERTY('ProductLevel') AS ProductLevel,
+
+SERVERPROPERTY('ProductUpdateLevel') AS ProductUpdateLevel,
+
+SERVERPROPERTY('ProductBuildType') AS ProductBuildType,
+
+SERVERPROPERTY('ProductUpdateReference') AS ProductUpdateReference,
+
+SERVERPROPERTY('ProductVersion') AS ProductVersion,
+
+SERVERPROPERTY('ProductMajorVersion') AS ProductMajorVersion,
+
+SERVERPROPERTY('ProductMinorVersion') AS ProductMinorVersion,
+
+SERVERPROPERTY('ProductBuild') AS ProductBuild 
+
+######################
+
+#Restore a SharePoint Site collection
+
+Restore-SPSite <URL> -Path <Path to .bak file> 
+
+######################
+
+#Restore over an existing SharePoint Site collection
+
+Restore-SPSite <URL> -Path <Path to .bak file> -force  
+
+######################
+
+#Create a Site Colelction Backup
+
+Backup-SPSite <URL> -Path <Path to .bak file including .bak file name> 
+
+######################
+
+#Find the size of a Site Collection
+
+$sc = Get-SPSite https://www.saanvirocks.com
+$sc | select url, @{label="Size in MB";Expression={$_.usage.storage}} 
+
+######################
+
+#Convert to claims
+
+###The command to set your account as the administrator of the site is as follows:
+
+
+$WebAppName = "http://<yourWebAppUrl>"
+
+$wa = get-SPWebApplication $WebAppName
+
+$wa.UseClaimsAuthentication = $true
+
+$wa.Update()
+
+
+
+###The commands to enable the user policy so that your account has full control is as follows:
+
+
+$account = "yourDomain\yourUser"
+
+$account = (New-SPClaimsPrincipal -identity $account -identitytype 1).ToEncodedString()
+
+$wa = get-SPWebApplication $WebAppName
+
+$zp = $wa.ZonePolicies("Default")
+
+$p = $zp.Add($account,"PSPolicy")
+
+$fc=$wa.PolicyRoles.GetSpecialRole("FullControl")
+
+$p.PolicyRoleBindings.Add($fc)
+
+$wa.Update()
+
+
+
+###The command to perform the migration from classic to claims is as follows:
+
+
+$wa.MigrateUsers($true)
+
+
+###Finally, the command to provision the web application to use the claims based identities, is as follows:
+
+$wa.ProvisionGlobally() 
+
+######################
+
+#Set usage db partition sizes
+
+$PageRequestsSize=Get-SPUsageDefinition -Identity “page requests”
+$PageRequestsSize.MaxTotalSizeInBytes= 12000000000
+$PageRequestsSize.update()
+
+######################
+
+#Set a new db as the db for the usage application
+
+Get-spusageapplication | Set-SPUsageApplication –DatabaseServer SharePointSQL –DatabaseName 2013_UsageLogging_12GB
+
+######################
+
+#Verify that correct db is being used
+
+(Get-SPUsageApplication).UsageDatabase
+(Get-SPUsageApplication).UsageDatabase.disksizerequired

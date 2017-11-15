@@ -1,0 +1,93 @@
+#Find farm account
+
+(Get-SPFarm).DefaultServiceAccount.Name
+
+######################
+
+#Looking for an event ID 5138
+
+$spservers=Get-SPServer | where {$_.Role -ne “Invalid”}
+ foreach($spserver in $spservers)
+ 
+{
+ 
+$filename=$spserver.name
+write-host ------------------------- $filename -------------------------
+get-winevent -FilterHashtable @{Logname='System';ID=5138}  -MaxEvents 3 | select TimeCreated, ID, Message
+ 
+}
+
+
+######################
+
+#Looking for an event ID 4732
+
+$spservers=Get-SPServer | where {$_.Role -ne “Invalid”}
+ foreach($spserver in $spservers)
+ 
+{
+ 
+$filename=$spserver.name
+write-host ------------------------- $filename -------------------------
+get-winevent -FilterHashtable @{Logname='Security';ID=4732}  -MaxEvents 4 | select TimeCreated, ID, Message
+ 
+}
+
+######################
+
+#Login to domain controller
+
+#Looking for an event ID 4735
+
+$spservers=Get-SPServer | where {$_.Role -ne “Invalid”}
+ foreach($spserver in $spservers)
+ 
+{
+ 
+$filename=$spserver.name
+write-host ------------------------- $filename -------------------------
+get-winevent -FilterHashtable @{Logname='Security';ID=4735}  -MaxEvents 4 | select TimeCreated, ID, Message
+ 
+}
+
+######################
+
+#find the solution deployment times
+
+Get-SPsolution | sort lastoperationendtime | ft name, lastoperationendtime
+
+######################
+
+#Add admin user to all the content databases
+
+Get-SPContentDatabase | Add-SPShellAdmin –UserName Domain\UserName -verbose
+
+######################
+
+#Reset ACL's to default
+
+Initialize-SPResourceSecurity
+
+######################
+
+#find account that runs the SharePoint Timer service
+
+gwmi win32_Service -filter "name='sptimerv4' | ft name, startname
+
+######################
+
+#Check local group permissions
+
+ net localgroup administrators
+ net localgroup WSS_ADMIN_WPG
+ net localgroup WSS_WPG
+ net localgroup WSS_Restricted_WPG_V4
+ net localgroup IIS_IUSRS
+
+######################
+
+#Identify app pool identity
+
+Get-SPServiceApplicationPool
+Get-SPServiceApplicationPool | ft Name, ProcessAccountName, ID, -auto
+Get-SPServiceApplicationPool | ft Name, ID, -auto

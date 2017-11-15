@@ -1,0 +1,290 @@
+######################
+
+#Working with distributed cache cluster, getting cluster health
+
+Use-CacheCluster
+Get-CacheClusterHealth
+
+######################
+
+#stopping the distributed cache service instance from and administrative powershell session
+
+Asnp *SharePoint*
+Stop-SPDistributedCacheServiceInstance –Graceful
+
+######################
+
+#starting the distributed cache service instance from and administrative SharePoint management shell session
+
+$ServiceOnServer = Get-SPServiceInstance | ? {$_.TypeName -eq "Distributed Cache" -and $_.Server.Name -eq $env:computername}
+$ ServiceOnServer.Provision()
+
+######################
+
+# Verifying the status of Distributed cache service
+
+$ServiceOnServer = Get-SPServiceInstance | ? {$_.TypeName -eq "Distributed Cache} | ft typename, status, server –auto -wrap
+
+
+######################
+
+# Get the cache host configuration
+
+Use-CacheCluster 
+Get-AFCacheHostConfiguration -ComputerName <ComputerName> -CachePort "22233" 
+
+######################
+
+#Update the distributed cache size
+
+Update-SPDistributedCacheSize -CacheSizeInMB CacheSize
+
+######################
+
+#Least privileging Distributed cache
+
+Stop-SPDistributedCacheServiceInstance –Graceful
+
+Remove-SPDistributedCacheServiceInstance 
+Add-SPDistributedCacheServiceInstance  # run this after you've least privileged one node
+
+#After distributed cache is only on one node, run this code
+
+$acct = Get-SPManagedAccount "domain\user_account" 
+$farm = Get-SPFarm 
+$svc = $farm.Services | ? {$_.TypeName -eq "Distributed Cache"} 
+$svc.ProcessIdentity.CurrentIdentityType = "SpecificUser" 
+$svc.ProcessIdentity.ManagedAccount = $acct 
+$svc.ProcessIdentity.Update() 
+$svc.ProcessIdentity.Deploy() 
+
+#wait at least 8 minutes
+
+######################
+
+#Nuke Distributed cache from a server
+
+Remove-SPDistributedCacheServiceInstance
+ 
+$SPFarm = Get-SPFarm 
+$cacheClusterName = "SPDistributedCacheCluster_" + $SPFarm.Id.ToString() 
+$cacheClusterManager = [Microsoft.SharePoint.DistributedCaching.Utilities.SPDistributedCacheClusterInfoManager]::Local 
+$cacheClusterInfo = $cacheClusterManager.GetSPDistributedCacheClusterInfo($cacheClusterName); 
+$instanceName ="SPDistributedCacheService Name=AppFabricCachingService" 
+$serviceInstance = Get-SPServiceInstance | ? {($_.Service.Tostring()) -eq $instanceName -and ($_.Server.Name) -eq $env:computername} 
+if([System.String]::IsNullOrEmpty($cacheClusterInfo.CacheHostsInfoCollection)) 
+{ 
+$serviceInstance.Delete() 
+}
+
+######################
+
+#Nuke the service instances from all servers in the farm
+
+$svc = Get-SPServiceInstance | Where {$_.TypeName -eq "Distributed Cache"}
+$svc.Delete()
+
+######################
+
+#Add distributed cache back to the first server, the server that will serve as the primary node
+
+$SPFarm = Get-SPFarm 
+$cacheClusterName = "SPDistributedCacheCluster_" + $SPFarm.Id.ToString() 
+$cacheClusterManager = [Microsoft.SharePoint.DistributedCaching.Utilities.SPDistributedCacheClusterInfoManager]::Local 
+$cacheClusterInfo = $cacheClusterManager.GetSPDistributedCacheClusterInfo($cacheClusterName); 
+$instanceName ="SPDistributedCacheService Name=AppFabricCachingService" 
+$serviceInstance = Get-SPServiceInstance | ? {($_.Service.Tostring()) -eq $instanceName -and ($_.Server.Name) -eq $env:computername} 
+if([System.String]::IsNullOrEmpty($cacheClusterInfo.CacheHostsInfoCollection)) 
+ 
+Add-SPDistributedCacheServiceInstance 
+$cacheClusterInfo.CacheHostsInfoCollection 
+
+######################
+
+#Finding the version of App Fabric installed
+ (Get-ItemProperty "C:\Program Files\AppFabric 1.1 for Windows Server\PowershellModules\DistributedCacheConfiguration\Microsoft.ApplicationServer.Caching.Configuration.dll" -Name VersionInfo).VersionInfo.ProductVersion
+
+######################
+
+#Stopping the distributed cache service in SharePoint 2016
+
+$instanceName ="SPDistributedCacheService Name=AppFabricCachingService"
+$serviceInstance = Get-SPServiceInstance | ? {($_.service.tostring()) -eq $instanceName -and ($_.server.name) -eq $env:computername}
+$serviceInstance.Unprovision()
+
+######################
+
+#Unprovision the sync service if it is stuck
+
+$UPS = Get-SPServiceInstance -EA "SilentlyContinue" | Where {$_.TypeName -eq "User Profile Synchronization Service" -and $_.Server -match $server}
+$UPS.Unprovision()
+
+######################
+
+#Delete any timer jobs that might be interferring with sync starting
+
+$timerjob = Get-SPTimerJob -EA "SilentlyContinue" | where {$_.Name -eq "ProfileSynchronizationSetupJob"}
+$timerjob.Delete()
+
+######################
+
+#Delete the Forefront Identity service certificates
+
+$allCertStores = Get-ChildItem -Path cert:\LocalMachine | %{$_.name}
+     foreach ($certstore in $allCertStores)
+    {
+        $store = New-Object System.Security.Cryptography.x509Certificates.x509Store($certstore,"LocalMachine")
+        $store.Open("ReadWrite")
+         $certs = $store.Certificates | ? {$_.subject -like "*ForefrontIdentityManager*"}
+        ForEach ($cert in $certs)
+        {
+          if($cert){$store.Remove($cert)}
+        }
+    $store.Close()
+    }
+
+######################
+
+#Reset UPS back to square one - written by S. Harbar 
+
+Add-PSSnapin Microsoft.SharePoint.Powershell
+# These will only work if there is one DB and one SA on the box.
+# If more than one, then use Get-SPDatabase and Get-SPServiceApplication  
+# to grab the GUID and pass that in instead of the pipebind 
+
+$syncDBType = "Microsoft.Office.Server.Administration.SynchronizationDatabase"
+$upaSAType = "User Profile Service Application"
+$syncDB = Get-SPDatabase | where-object {$_.Type -eq $syncDBType}
+$upa = Get-SPServiceApplication | where-object {$_.TypeName -eq $upaSAType}
+
+$syncDB.Unprovision() 
+$syncDB.Status = "Offline"
+$upa.ResetSynchronizationMachine()
+$upa.ResetSynchronizationDatabase()  
+$syncDB.Provision()  
+
+# We MUST restart the timer service for the state to be reflected in 
+# Services on Server and Manage UPA 
+Restart-service SPTimerV4  
+
+# At this stage we MUST add the Farm account to the SyncDB (the above 
+# steps remove the user) remember the default schema must be 'dbo'. 
+# If we don't do this, UPS provisioning will fail.
+
+######################
+
+#Delete the UPA and all its databases and it's proxy
+
+Get-SPServiceApplication | ? {$_.typename –like “user*”} | Remove-SPServiceApplication –RemoveData –confirm:$false
+Get-SPServiceApplicationProxy | ? {$_.typename –like “user*”} | Remove-SPServiceApplicationProxy –RemoveData –confirm:$false
+
+######################
+
+#running psconfig from the command line
+
+PSConfig.exe -cmd upgrade -inplace b2b -force -cmd applicationcontent -install -cmd installfeatures
+
+######################
+
+#Upgrading content databases
+
+upgrade-spcontentdatabase <DatabaseName>
+
+######################
+
+#Upgrading content databases to avoid missing server side dependencies causing fail
+
+upgrade-spcontentdatabase <DatabaseName> –skipintegritychecks 
+
+######################
+
+#find out more information about a sc-win32-status  - command line
+
+net helpmsg <sc-win32status number>
+
+######################
+
+#Find the log file location
+
+(Get-SPDiagnosticConfig).LogLocation
+(Get-SPUsageService).usagelogdir
+
+######################
+
+#Turn up the logging level
+
+Set-SPLogLevel –TraceSeverity VerboseEx 
+
+######################
+
+#Changing a domain password from the cli
+
+Net user 2013farm MyP@ssword0 /domain
+
+######################
+
+#Merging log files
+
+Merge-SPLogFile -Correlation <CorrID> -Path <Path to file>
+
+Merge-SPLogFile –Path <PathToFile> -StartTime "mm/dd/yyyy hh:mm" –EndTime "mm/dd/yyyy hh:mm"
+
+######################
+
+#Creating a host header site collection
+
+#Set the variables
+
+$applicationPool = "HNSC01ApplicationPool"
+$ServiceAcct = "Contoso\2013WebContent"
+$WebApp = "SharePoint - 10001 - HNSC"
+$webAppURL = "https://hnsc.Contoso.com"  
+$contentDB = "2013_WSS_Content_HNSC01" 
+
+
+#Create the web application
+#2010
+ New-SPWebApplication -ApplicationPool $applicationPool -ApplicationPoolAccount $serviceAcct -Name $WebApp -URL $webAppURL -Port 10001 -databaseName $contentDB 
+
+#OR
+#2013
+New-SPWebApplication -ApplicationPool $applicationPool -ApplicationPoolAccount $serviceAcct -Name $WebApp -URL $webAppURL -Port 10001 –AuthenticationProvider (New-SPAuthenticationProvider) -databaseName $contentDB 
+
+#Set the variables for the top site
+
+$primarySiteCollectionOwnerAcct = "Contoso\SamarT"
+$PrimarySCOwnerEmail = "samar.tomar@Contoso.com"
+ 
+$webApp0URL = "http://hnsc.Contoso.com:10001"
+ 
+#Create the top site
+
+New-SPSITE -URL $webApp0URL -owneralias $primarySiteCollectionOwnerAcct -owneremail $PrimarySCOwnerEmail -Template STS#1
+
+#Create a new database to house the first HNSC
+
+$HNSC3DB = "2013_WSS_Content_GetintoContoso"
+$webApp0URL = "http://hnsc.Contoso.com:10001"
+ New-SPContentDatabase $HNSC3DB –WebApplication $webApp0URL
+
+#Create the variables for the HNSC creation
+
+$primarySiteCollectionOwnerAcct = "Contoso\StacyS"
+$PrimarySCOwnerEmail = "stacy.simpkins@Contoso.com"
+$HNSC3Name = "Get Into Contoso Test Site"
+$HNSC3URL = "http://GetInto.Contoso.com"
+$HNSC3DB = "2013_WSS_Content_GetintoContoso"
+$webApp0URL = "http://hnsc.Contoso.com:10001"
+ 
+#Create the HNSC
+
+New-SPSite -url $HNSC3URL -Name $HNSC3Name -hostheaderwebapplication $WebApp0URL -ownerAlias $PrimarySiteCollectionOwnerAcct -owneremail $PrimarySCOwnerEmail -contentDatabase $HNSC3DB -Template STS#0Discuss parts of the scripts
+
+######################
+######################
+######################
+
+######################
+#
+
+

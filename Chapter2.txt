@@ -1,0 +1,356 @@
+######################
+
+#Creating an Alias
+
+$x = 1
+$x = a
+$x = a1
+
+######################
+
+#set logging levels back to default
+
+Clear-SPLoglevel 
+
+######################
+
+#Turn logging to verboseEX
+
+Set-SPLogLevel –traceseverity VerboseEx
+
+######################
+
+#Configure Publishing on the web application object model
+
+$wa = Get-SPWebApplication -Identity "<WebApplication>"
+$wa.Properties["portalsuperuseraccount"] = "<SuperUser>"
+$wa.Properties["portalsuperreaderaccount"] = "<SuperReader>"
+$wa.Update()
+
+######################
+
+#Finding out about web applications
+
+get-spwebapplication 
+
+$wa = get-spwebapplication 
+$wa.Properties | gm
+
+$wa.properties.portalsuperuseraccount
+
+$wa.properties.portalsuperreaderaccount
+
+(Get-SPWebApplication http://portal.contoso.com).Properties
+
+$wa | gm
+
+######################
+
+#Find Search performance level
+
+Get-SPEnterpriseSearchService
+
+######################
+
+#Finding search related timer job info
+
+(Get-SPEnterpriseSearchService).jobdefinitions | ft name, lastruntime
+
+######################
+
+#Finding out all about the Enterprise Search Service methods and properties
+
+(Get-SPEnterpriseSearchService).jobdefinitions |Get-Member
+
+######################
+
+#Which search timer jobs are disabled
+
+(Get-SPEnterpriseSearchService).jobdefinitions | ft name, isdisabled
+
+######################
+
+#Finding out about a specific timer job
+
+(Get-SPEnterpriseSearchService).jobdefinitions  | ? {$_.Name -like "Software quality metrics*"}
+
+######################
+
+#Get methods and properties about a managed path
+
+Get-SPManagedPath http://portal.contoso.com | Get-Member
+
+######################
+
+#Finding help for a cmdlet
+
+Get-Help Get-SPWebApplication
+
+######################
+
+#Find all sites and sub sites and output to a file
+
+Get-SPWebApplication | Get-SPSite –Limit All | Get-SPWeb –Limit All | FT URL –auto –wrap | Out-File c:\TroubleShooting\AllSites.txt
+
+######################
+
+#Import the server manager cmdlets and use windows binaries from the -source parameter
+
+Import-Module ServerManager
+Add-WindowsFeature Net-Framework-Features,Web-Server,Web-WebServer,Web-Common-Http,Web-Static-Content,Web-Default-Doc,Web-Dir-Browsing,Web-Http-Errors,Web-App-Dev,Web-Asp-Net,Web-Net-Ext,Web-ISAPI-Ext,Web-ISAPI-Filter,Web-Health,Web-Http-Logging,Web-Log-Libraries,Web-Request-Monitor,Web-Http-Tracing,Web-Security,Web-Basic-Auth,Web-Windows-Auth,Web-Filtering,Web-Digest-Auth,Web-Performance,Web-Stat-Compression,Web-Dyn-Compression,Web-Mgmt-Tools,Web-Mgmt-Console,Web-Mgmt-Compat,Web-Metabase,Application-Server,AS-Web-Support,AS-TCP-Port-Sharing,AS-WAS-Support, AS-HTTP-Activation,AS-TCP-Activation,AS-Named-Pipes,AS-Net-Framework,WAS,WAS-Process-Model,WAS-NET-Environment,WAS-Config-APIs,Web-Lgcy-Scripting,Windows-Identity-Foundation,Server-Media-Foundation,Xps-Viewer -Source E:\sources\sxs
+
+######################
+
+#Offline install of pre-requisites part 2
+
+$SharePoint2013Path = "C:\AutoSPInstaller\SP\2013\SharePoint"
+
+Start-Process "$SharePoint2013Path\PrerequisiteInstaller.exe" –ArgumentList "/SQLNCli:$SharePoint2013Path\PrerequisiteInstallerFiles\sqlncli.msi /IDFX:$SharePoint2013Path\PrerequisiteInstallerFiles\Windows6.1-KB974405-x64.msu /IDFX11:$SharePoint2013Path\PrerequisiteInstallerFiles\MicrosoftIdentityExtensions-64.msi /Sync:$SharePoint2013Path\PrerequisiteInstallerFiles\Synchronization.msi /AppFabric:$SharePoint2013Path\PrerequisiteInstallerFiles\WindowsServerAppFabricSetup_x64.exe /KB2671763:$SharePoint2013Path\PrerequisiteInstallerFiles\AppFabric1.1-RTM-KB2671763-x64-ENU.exe /MSIPCClient:$SharePoint2013Path\PrerequisiteInstallerFiles\setup_msipc_x64.msi /WCFDataServices:$SharePoint2013Path\PrerequisiteInstallerFiles\WcfDataServices.exe /WCFDataServices56:$SharePoint2013Path\PrerequisiteInstallerFiles\WcfDataServices56.exe"
+
+######################
+
+#Create central admin, SQL alias is already set with cliconfg.exe, SHAREPOINT 2013
+
+Set-ExecutionPolicy Unrestricted
+Add-PSSnapin microsoft.sharepoint.powershell -ErrorAction SilentlyContinue
+Write-Host "When prompted for credentials, give SharePoint the farm account, not the install account that you are signed in with, then provide the passphrase, note: you will not be prompted for passPhrase if it is baked into the script" -ForegroundColor green
+New-SPConfigurationDatabase -DatabaseName 2013_SharePoint_Config -DatabaseServer SharePointAlias -Passphrase (ConvertTo-SecureString "1Qaz2Wsx3Edc4Rfv"
+-AsPlainText -Force) -FarmCredentials (Get-Credential) -AdministrationContentDatabaseName 2013_SharePoint_CentralAdmin_Content -SkipRegisterAsDistributedCacheHost
+$CAPort = 5000
+$CAAuth = "NTLM"
+Install-SPHelpCollection -All
+Initialize-SPResourceSecurity
+Install-SPService
+Install-SPFeature -AllExistingFeatures
+New-SPCentralAdministration -Port $CAPort -WindowsAuthProvider $CAAuth
+Install-SPApplicationContent
+New-ItemProperty HKLM:\System\CurrentControlSet\Control\Lsa -Name "DisableLoopbackCheck" -value "1" -PropertyType dword
+## Note you might not have an SCP in your domain, so you may want to exclude the next two lines ##
+$ServiceConnectionPoint = get-SPTopologyServiceApplication | select URI
+Set-SPFarmConfig -ServiceConnectionPointBindingInformation $ServiceConnectionPoint -Confirm: $False
+Write-Host "Make sure to register the managed accounts for Service Apps and for Web Content before continuing with the 2013Install script" –ForegroundColor Green -BackgroundColor Yellow
+
+
+######################
+
+#Create a SQL Alias
+
+$SQLAlias = "SQLALIASNAME"
+ $sqlserver = "SQLservername\instancename,1433" 
+
+Write-Host “Creating x64 SQL Alias”
+New-Item -path HKLM:SOFTWARE\Microsoft\MSSQLServer\Client\ConnectTo
+ New-ItemProperty HKLM:SOFTWARE\Microsoft\MSSQLServer\Client\ConnectTo -name $SQLAlias -propertytype String -value "DBMSSOCN,$sqlserver"
+
+Write-Host “Creating 32bit SQL Alias”
+New-Item -path HKLM:SOFTWARE\Wow6432Node\Microsoft\MSSQLServer\Client\ConnectTo
+ Write-Host "Configured SQL Alias on the Server"
+ New-ItemProperty HKLM:SOFTWARE\Wow6432Node\Microsoft\MSSQLServer\Client\ConnectTo -name $SQLAlias -propertytype String -value "DBMSSOCN,$sqlserver"
+
+######################
+
+#Set execution policy to unrestricted
+
+Set-ExecutionPolicy Unrestricted
+
+######################
+
+#Change a regular powershell session to a SharePoint Management session
+
+Add-PSSnapin microsoft.sharepoint.powershell -ErrorAction SilentlyContinue
+
+######################
+
+#Create SharePoint Service Applications
+
+######################
+
+#######################
+
+#######################
+
+
+#####################################################
+# This script replicates most of the functionality found in the SharePoint Products Configuration Wizard with the EXCEPTION of the USER PROFILE 
+ SERVICE  SHAREPOINT 2010#####################################################
+Add-PSSnapin Microsoft.SharePoint.PowerShell -erroraction SilentlyContinue
+## Settings you may want to change ##
+$databaseServerName = "SharePointSQL" #assumes you're using a SQL Alias configured with cliconfg.exe
+$searchServerName = "2010APP" #Front end Server that will run central admin, the server you’re on right now
+$saAppPoolName = "SharePoint Hosted Services"
+$appPoolUserName = "Contoso\2010svcapps" #This is the service application pool account it is not the farm admin account for Timer and Central admin, sometimes calle#d the farm account, it is not the setup account, or install account
+$ssaAppPoolName = "SharePoint Search Service Application Pool"
+$SearchappPoolUserName = "Contoso\2010Search"
+## Service Application Service Names ##
+$accesssSAName = "Access Services"
+$bcsSAName = "Business Data Connectivity Service"
+$excelSAName = "Excel Services Application"
+$metadataSAName = "Managed Metadata Web Service"
+$performancePointSAName = "PerformancePoint Service"
+$searchSAName = "SharePoint Server Search"
+$stateSAName = "State Service"
+$secureStoreSAName = "Secure Store Service"
+$usageSAName = "Usage and Health Data Collection Service"
+$visioSAName = "Visio Graphics Service"
+$WebAnalyticsSAName = "Web Analytics Service"
+$WordAutomationSAName = "Word Automation Services"
+
+$saAppPool = Get-SPServiceApplicationPool -Identity $saAppPoolName -EA 0
+if($saAppPool -eq $null)
+{
+Write-Host "Creating Service Application Pool…"
+
+$appPoolAccount = Get-SPManagedAccount -Identity $appPoolUserName -EA 0
+if($appPoolAccount -eq $null)
+{
+Write-Host "Please supply the password for the Service Account…"
+$appPoolCred = Get-Credential $appPoolUserName
+$appPoolAccount = New-SPManagedAccount -Credential $appPoolCred -EA 0
+}
+
+$appPoolAccount = Get-SPManagedAccount -Identity $appPoolUserName -EA 0
+
+if($appPoolAccount -eq $null)
+{
+Write-Host "Cannot create or find the managed account $appPoolUserName, please ensure the account exists."
+Exit -1
+}
+New-SPServiceApplicationPool -Name $saAppPoolName -Account $appPoolAccount -EA 0 > $null
+}
+
+Write-Host "Creating Usage Service and Proxy…"
+$serviceInstance = Get-SPUsageService
+New-SPUsageApplication -Name $usageSAName -DatabaseServer $databaseServerName -DatabaseName "Usage" -UsageService $serviceInstance > $null
+
+Write-Host "Creating Access Services and Proxy…"
+New-SPAccessServiceApplication -Name $accesssSAName -ApplicationPool $saAppPoolName > $null
+Get-SPServiceInstance | where-object {$_.TypeName -eq "Access Database Service"} | Start-SPServiceInstance > $null
+
+Write-Host "Creating BCS Service and Proxy…"
+New-SPBusinessDataCatalogServiceApplication -Name $bcsSAName -ApplicationPool $saAppPoolName -DatabaseServer $databaseServerName -DatabaseName "BusinessDataCatalog" > $null
+
+Get-SPServiceInstance | where-object {$_.TypeName -eq "Business Data Connectivity Service"} | Start-SPServiceInstance > $null
+
+Write-Host "Creating Excel Service…"
+New-SPExcelServiceApplication -name $excelSAName –ApplicationPool $saAppPoolName > $null
+Set-SPExcelFileLocation -Identity "http://" -ExcelServiceApplication $excelSAName -ExternalDataAllowed 2 -WorkbookSizeMax 10 -WarnOnDataRefresh:$true
+Get-SPServiceInstance | where-object {$_.TypeName -eq "Excel Calculation Services"} | Start-SPServiceInstance > $null
+
+Write-Host "Creating Metadata Service and Proxy…"
+New-SPMetadataServiceApplication -Name $metadataSAName -ApplicationPool $saAppPoolName -DatabaseServer $databaseServerName -DatabaseName "Metadata" > $null
+New-SPMetadataServiceApplicationProxy -Name "$metadataSAName Proxy" -DefaultProxyGroup -ServiceApplication $metadataSAName > $null
+Get-SPServiceInstance | where-object {$_.TypeName -eq "Managed Metadata Web Service"} | Start-SPServiceInstance > $null
+
+Write-Host "Creating Performance Point Service and Proxy…"
+New-SPPerformancePointServiceApplication -Name $performancePointSAName -ApplicationPool $saAppPoolName -DatabaseServer $databaseServerName -DatabaseName "PerformancePoint" > $null
+New-SPPerformancePointServiceApplicationProxy -Default -Name "$performancePointSAName Proxy" -ServiceApplication $performancePointSAName > $null
+Get-SPServiceInstance | where-object {$_.TypeName -eq "PerformancePoint Service"} | Start-SPServiceInstance > $null
+
+##START SEARCH
+
+$ssaAppPool = Get-SPServiceApplicationPool -Identity $ssaAppPoolName -EA 0
+if($ssaAppPool -eq $null)
+{
+Write-Host "Creating Search Service Application Pool…"
+
+$SearchappPoolAccount = Get-SPManagedAccount -Identity $SearchappPoolUserName -EA 0
+if($SearchappPoolAccount -eq $null)
+{
+Write-Host "Please supply the password for the Service Account…"
+$ssappPoolCred = Get-Credential $SearchappPoolUserName
+$SearchappPoolAccount = New-SPManagedAccount -Credential $ssappPoolCred -EA 0
+}
+
+$SearchappPoolAccount = Get-SPManagedAccount -Identity $SearchappPoolUserName -EA 0
+
+if($SearchappPoolAccount -eq $null)
+{
+Write-Host "Cannot create or find the managed account $SearchappPoolUserName, please ensure the account exists."
+Exit -1
+}
+
+New-SPServiceApplicationPool -Name $ssaAppPoolName -Account $SearchappPoolAccount -EA 0 > $null
+
+}
+
+## Search Specifics, we are single server farm ##
+
+$searchServerName = (Get-ChildItem env:computername).value
+$serviceAppName = "Enterprise Search Services"
+$searchDBName = "Search"
+
+Write-Host "Creating Search Service and Proxy…"
+Write-Host " Starting Services…"
+Start-SPEnterpriseSearchServiceInstance $searchServerName
+Start-SPEnterpriseSearchQueryAndSiteSettingsServiceInstance $searchServerName
+ 
+Write-Host " Creating Search Application…"
+$searchApp = New-SPEnterpriseSearchServiceApplication -Name $searchSAName -ApplicationPool $ssaAppPoolName -DatabaseServer $databaseServerName -DatabaseName $searchDBName
+$searchInstance = Get-SPEnterpriseSearchServiceInstance $searchServerName
+ Write-Host " Creating Administration Component…"
+$searchApp | Get-SPEnterpriseSearchAdministrationComponent | Set-SPEnterpriseSearchAdministrationComponent -SearchServiceInstance $searchInstance
+ #Crawl
+Write-Host " Creating Crawl Component…"
+$InitialCrawlTopology = $searchApp | Get-SPEnterpriseSearchCrawlTopology -Active
+$CrawlTopology = $searchApp | New-SPEnterpriseSearchCrawlTopology
+$CrawlDatabase = ([array]($searchApp | Get-SPEnterpriseSearchCrawlDatabase))[0]
+$CrawlComponent = New-SPEnterpriseSearchCrawlComponent -CrawlTopology $CrawlTopology -CrawlDatabase $CrawlDatabase -SearchServiceInstance $searchInstance
+$CrawlTopology | Set-SPEnterpriseSearchCrawlTopology -Active
+ Write-Host -ForegroundColor white " Waiting for the old crawl topology to become inactive" -NoNewline
+do {write-host -NoNewline .;Start-Sleep 6;} while ($InitialCrawlTopology.State -ne "Inactive")
+$InitialCrawlTopology | Remove-SPEnterpriseSearchCrawlTopology -Confirm:$false
+Write-Host
+ #Query
+Write-Host " Creating Query Component…"
+$InitialQueryTopology = $searchApp | Get-SPEnterpriseSearchQueryTopology -Active
+$QueryTopology = $searchApp | New-SPEnterpriseSearchQueryTopology -Partitions 1
+$IndexPartition= (Get-SPEnterpriseSearchIndexPartition -QueryTopology $QueryTopology)
+$QueryComponent = New-SPEnterpriseSearchQuerycomponent -QueryTopology $QueryTopology -IndexPartition $IndexPartition -SearchServiceInstance $searchInstance
+$PropertyDatabase = ([array]($searchApp | Get-SPEnterpriseSearchPropertyDatabase))[0]
+$IndexPartition | Set-SPEnterpriseSearchIndexPartition -PropertyDatabase $PropertyDatabase
+$QueryTopology | Set-SPEnterpriseSearchQueryTopology -Active
+ 
+Write-Host " Creating Proxy…"
+$searchAppProxy = New-SPEnterpriseSearchServiceApplicationProxy -Name "$searchSAName Proxy" -SearchApplication $searchSAName > $null
+#####END SEARCH
+ 
+Write-Host "Creating State Service and Proxy…"
+New-SPStateServiceDatabase -Name "StateService" -DatabaseServer $databaseServerName | New-SPStateServiceApplication -Name $stateSAName | New-SPStateServiceApplicationProxy -Name "$stateSAName Proxy" -DefaultProxyGroup > $null
+
+Write-Host "Creating Secure Store Service and Proxy…"
+New-SPSecureStoreServiceapplication -Name $secureStoreSAName -Sharing:$false -DatabaseServer $databaseServerName -DatabaseName "SecureStoreServiceApp" -ApplicationPool $saAppPoolName -auditingEnabled:$true -auditlogmaxsize 30 | New-SPSecureStoreServiceApplicationProxy -name "$secureStoreSAName Proxy" -DefaultProxygroup > $null
+
+Get-SPServiceInstance | where-object {$_.TypeName -eq "Secure Store Service"} | Start-SPServiceInstance > $null
+Write-Host "Creating Visio Graphics Service and Proxy…"
+New-SPVisioServiceApplication -Name $visioSAName -ApplicationPool $saAppPoolName > $null
+New-SPVisioServiceApplicationProxy -Name "$visioSAName Proxy" -ServiceApplication $visioSAName > $null
+Get-SPServiceInstance | where-object {$_.TypeName -eq "Visio Graphics Service"} | Start-SPServiceInstance > $null
+Write-Host "Creating Web Analytics Service and Proxy…"
+$stagerSubscription = ""
+$reportingSubscription = ""
+New-SPWebAnalyticsServiceApplication -Name $WebAnalyticsSAName -ApplicationPool $saAppPoolName -ReportingDataRetention 20 -SamplingRate 100 -ListOfReportingDatabases $reportingSubscription -ListOfStagingDatabases $stagerSubscription > $null
+New-SPWebAnalyticsServiceApplicationProxy -Name "$WebAnalyticsSAName Proxy" -ServiceApplication $WebAnalyticsSAName > $null
+Get-SPServiceInstance | where-object {$_.TypeName -eq "Web Analytics Web Service"} | Start-SPServiceInstance > $null
+Get-SPServiceInstance | where-object {$_.TypeName -eq "Web Analytics Data Processing Service"} | Start-SPServiceInstance > $null
+
+Write-Host "Creating Word Conversion Service and Proxy…"
+New-SPWordConversionServiceApplication -Name $WordAutomationSAName -ApplicationPool $saAppPoolName -DatabaseServer $databaseServerName -DatabaseName "WordAutomation" -Default > $null
+Get-SPServiceInstance | where-object {$_.TypeName -eq "Word Automation Services"} | Start-SPServiceInstance > $null
+############################################## End Script
+#Now proceed to manually configuring your service applications (e.g. the Secure Store Service for Excel Services, Visio graphics, and performance point. The managed metadata service #for a content type hub)
+
+######################
+
+######################
+
+######################
+
+#Interogating the shell for Powershell cmdlets that work with databases
+
+get-command -noun *database -verb get
+
+######################
+
+#Finding the SQLAlias in use
+
+Get-SPDatabase | ft Name, Server

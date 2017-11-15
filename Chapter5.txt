@@ -1,0 +1,671 @@
+######################
+
+# Create the stored procedure to run to create the logins step 1, 
+
+USE master
+
+GO
+
+IF OBJECT_ID ('sp_hexadecimal') IS NOT NULL
+
+DROP PROCEDURE sp_hexadecimal
+
+GO
+
+CREATE PROCEDURE sp_hexadecimal
+
+@binvalue varbinary(256),
+
+@hexvalue varchar (514) OUTPUT
+
+AS
+
+DECLARE @charvalue varchar (514)
+
+DECLARE @i int
+
+DECLARE @length int
+
+DECLARE @hexstring char(16)
+
+SELECT @charvalue = '0x'
+
+SELECT @i = 1
+
+SELECT @length = DATALENGTH (@binvalue)
+
+SELECT @hexstring = '0123456789ABCDEF'
+
+WHILE (@i <= @length)
+
+BEGIN
+
+DECLARE @tempint int
+
+DECLARE @firstint int
+
+DECLARE @secondint int
+
+SELECT @tempint = CONVERT(int, SUBSTRING(@binvalue,@i,1))
+
+SELECT @firstint = FLOOR(@tempint/16)
+
+SELECT @secondint = @tempint - (@firstint*16)
+
+SELECT @charvalue = @charvalue +
+
+SUBSTRING(@hexstring, @firstint+1, 1) +
+
+SUBSTRING(@hexstring, @secondint+1, 1)
+
+SELECT @i = @i + 1
+
+END
+
+SELECT @hexvalue = @charvalue
+
+GO
+
+IF OBJECT_ID ('sp_help_revlogin') IS NOT NULL
+
+DROP PROCEDURE sp_help_revlogin
+
+GO
+
+CREATE PROCEDURE sp_help_revlogin @login_name sysname = NULL AS
+
+DECLARE @name sysname
+
+DECLARE @type varchar (1)
+
+DECLARE @hasaccess int
+
+DECLARE @denylogin int
+
+DECLARE @is_disabled int
+
+DECLARE @PWD_varbinary varbinary (256)
+
+DECLARE @PWD_string varchar (514)
+
+DECLARE @SID_varbinary varbinary (85)
+
+DECLARE @SID_string varchar (514)
+
+DECLARE @tmpstr varchar (1024)
+
+DECLARE @is_policy_checked varchar (3)
+
+DECLARE @is_expiration_checked varchar (3)
+
+DECLARE @defaultdb sysname
+
+IF (@login_name IS NULL)
+
+DECLARE login_curs CURSOR FOR
+
+SELECT p.sid, p.name, p.type, p.is_disabled, p.default_database_name, l.hasaccess, l.denylogin FROM
+
+sys.server_principals p LEFT JOIN sys.syslogins l
+
+ON ( l.name = p.name ) WHERE p.type IN ( 'S', 'G', 'U' ) AND p.name <> 'sa'
+
+ELSE
+
+DECLARE login_curs CURSOR FOR
+
+SELECT p.sid, p.name, p.type, p.is_disabled, p.default_database_name, l.hasaccess, l.denylogin FROM
+
+sys.server_principals p LEFT JOIN sys.syslogins l
+
+ON ( l.name = p.name ) WHERE p.type IN ( 'S', 'G', 'U' ) AND p.name = @login_name
+
+OPEN login_curs
+
+FETCH NEXT FROM login_curs INTO @SID_varbinary, @name, @type, @is_disabled, @defaultdb, @hasaccess, @denylogin
+
+IF (@@fetch_status = -1)
+
+BEGIN
+
+PRINT 'No login(s) found.'
+
+CLOSE login_curs
+
+DEALLOCATE login_curs
+
+RETURN -1
+
+END
+
+SET @tmpstr = '/* sp_help_revlogin script '
+
+PRINT @tmpstr
+
+SET @tmpstr = '** Generated ' + CONVERT (varchar, GETDATE()) + ' on ' + @@SERVERNAME + ' */'
+
+PRINT @tmpstr
+
+PRINT ''
+
+WHILE (@@fetch_status <> -1)
+
+BEGIN
+
+IF (@@fetch_status <> -2)
+
+BEGIN
+
+PRINT ''
+
+SET @tmpstr = '-- Login: ' + @name
+
+PRINT @tmpstr
+
+IF (@type IN ( 'G', 'U'))
+
+BEGIN -- NT authenticated account/group
+
+SET @tmpstr = 'CREATE LOGIN ' + QUOTENAME( @name ) + ' FROM WINDOWS WITH DEFAULT_DATABASE = [' + @defaultdb + ']'
+
+END
+
+ELSE BEGIN -- SQL Server authentication
+
+-- obtain password and sid
+
+SET @PWD_varbinary = CAST( LOGINPROPERTY( @name, 'PasswordHash' ) AS varbinary (256) )
+
+EXEC sp_hexadecimal @PWD_varbinary, @PWD_string OUT
+
+EXEC sp_hexadecimal @SID_varbinary,@SID_string OUT
+
+-- obtain password policy state
+
+SELECT @is_policy_checked = CASE is_policy_checked WHEN 1 THEN 'ON' WHEN 0 THEN 'OFF' ELSE NULL END FROM sys.sql_logins WHERE name = @name
+
+SELECT @is_expiration_checked = CASE is_expiration_checked WHEN 1 THEN 'ON' WHEN 0 THEN 'OFF' ELSE NULL END FROM sys.sql_logins WHERE name = @name
+
+SET @tmpstr = 'CREATE LOGIN ' + QUOTENAME( @name ) + ' WITH PASSWORD = ' + @PWD_string + ' HASHED, SID = ' + @SID_string + ', DEFAULT_DATABASE = [' + @defaultdb + ']'
+
+IF ( @is_policy_checked IS NOT NULL )
+
+BEGIN
+
+SET @tmpstr = @tmpstr + ', CHECK_POLICY = ' + @is_policy_checked
+
+END
+
+IF ( @is_expiration_checked IS NOT NULL )
+
+BEGIN
+
+SET @tmpstr = @tmpstr + ', CHECK_EXPIRATION = ' + @is_expiration_checked
+
+END
+
+END
+
+IF (@denylogin = 1)
+
+BEGIN -- login is denied access
+
+SET @tmpstr = @tmpstr + '; DENY CONNECT SQL TO ' + QUOTENAME( @name )
+
+END
+
+ELSE IF (@hasaccess = 0)
+
+BEGIN -- login exists but does not have access
+
+SET @tmpstr = @tmpstr + '; REVOKE CONNECT SQL TO ' + QUOTENAME( @name )
+
+END
+
+IF (@is_disabled = 1)
+
+BEGIN -- login is disabled
+
+SET @tmpstr = @tmpstr + '; ALTER LOGIN ' + QUOTENAME( @name ) + ' DISABLE'
+
+END
+
+PRINT @tmpstr
+
+END
+
+FETCH NEXT FROM login_curs INTO @SID_varbinary, @name, @type, @is_disabled, @defaultdb, @hasaccess, @denylogin
+
+END
+
+CLOSE login_curs
+
+DEALLOCATE login_curs
+
+RETURN 0
+
+GO 
+
+######################
+
+#Find port that SQL is listening on given a process SID
+
+netstat -ano | find /i "PID"  replace PID with the actual PID . e.g. 1234
+
+######################
+
+#Install Telnet Client
+
+pkgmgr /iu:"TelnetClient" 
+
+######################
+
+#Create inbound firewall rule
+
+netsh advfirewall firewall add rule name = SQLPort dir = in protocol = tcp action = allow localport = 1433 remoteip = localsubnet profile = DOMAIN 
+
+######################
+
+#Un-install Telnet Client
+
+pkgmgr /uu:"TelnetClient"
+
+######################
+
+#Find out if SQL is clustered
+
+ SELECT SERVERPROPERTY('IsClustered') 
+ 
+#If the statement returns a 1, you’re dealing with a SQL cluster and if it returns 0 you're not dealing with a cluster
+
+######################
+
+#Identify whitespace
+
+Create Table ##temp
+
+(
+
+DatabaseName sysname,
+
+Name sysname,
+
+physical_name nvarchar(500),
+
+size decimal (18,2),
+
+FreeSpace decimal (18,2)
+
+)
+
+Exec sp_msforeachdb '
+
+Use [?];
+
+Insert Into ##temp (DatabaseName, Name, physical_name, Size, FreeSpace)
+
+Select DB_NAME() AS [DatabaseName], Name, physical_name,
+
+Cast(Cast(Round(cast(size as decimal) * 8.0/1024.0,2) as decimal(18,2)) as nvarchar) Size,
+
+Cast(Cast(Round(cast(size as decimal) * 8.0/1024.0,2) as decimal(18,2)) -
+
+Cast(FILEPROPERTY(name, ''SpaceUsed'') * 8.0/1024.0 as decimal(18,2)) as nvarchar) As FreeSpace
+
+From sys.database_files
+
+'
+
+Select * From ##temp 
+
+######################
+
+#Get rid of the temp Table from previous script
+
+drop table ##temp
+
+######################
+
+#Find out about your SQL instance
+
+select @@version
+
+######################
+
+#Find out about certian characteristics
+
+SELECT SERVERPROPERTY('productversion'), SERVERPROPERTY ('productlevel'), SERVERPROPERTY ('edition') 
+
+######################
+
+#How much memory is your SQL using
+
+SELECT
+
+(physical_memory_in_use_kb/1024) AS Memory_usedby_Sqlserver_MB, (locked_page_allocations_kb/1024) AS Locked_pages_used_Sqlserver_MB, (total_virtual_address_space_kb/1024) AS Total_VAS_in_MB,
+
+process_physical_memory_low, process_virtual_memory_low
+
+FROM sys.dm_os_process_memory; 
+
+######################
+
+#Which databases are most I/O intensive
+
+WITH Aggregate_IO_Statistics
+
+AS
+
+(SELECT DB_NAME(database_id) AS [Database Name],
+
+CAST(SUM(num_of_bytes_read + num_of_bytes_written)/1048576 AS DECIMAL(12, 2)) AS
+
+io_in_mb
+
+FROM sys.dm_io_virtual_file_stats(NULL, NULL) AS [DM_IO_STATS]
+
+GROUP BY database_id)
+
+SELECT ROW_NUMBER() OVER(ORDER BY io_in_mb DESC) AS [I/O Rank], [Database Name],
+
+io_in_mb AS [Total I/O (MB)],
+
+CAST(io_in_mb/ SUM(io_in_mb) OVER() * 100.0 AS DECIMAL(5,2)) AS [I/O Percent]
+
+FROM Aggregate_IO_Statistics
+
+ORDER BY [I/O Rank] OPTION (RECOMPILE); 
+
+######################
+
+#Find all databases from SQL instance, not including system db's
+
+SELECT name
+
+FROM master.dbo.sysdatabases
+
+WHERE name NOT IN ('master','model','msdb','tempdb') 
+
+######################
+
+#Find SQL server page reads/sec and page writes/sec
+
+SELECT object_name, counter_name, cntr_value
+
+FROM sys.dm_os_performance_counters
+
+WHERE [object_name] LIKE '%Buffer Manager%'
+
+AND [counter_name] = 'Page reads/sec'
+
+OR [counter_name] = 'Page writes/sec' 
+
+######################
+
+#Buffer Cache hit ratio
+
+SELECT object_name, counter_name, cntr_value
+
+FROM sys.dm_os_performance_counters
+
+WHERE [object_name] LIKE '%Buffer Manager%'
+
+AND [counter_name] = 'Buffer cache hit ratio' 
+
+######################
+
+#Page life expectancy
+
+SELECT object_name, counter_name, cntr_value
+
+FROM sys.dm_os_performance_counters
+
+WHERE [object_name] LIKE '%Buffer Manager%'
+
+AND [counter_name] = 'Page life expectancy' 
+
+######################
+
+#Report of files in use by SQL
+
+SELECT
+
+'DB_NAME' = db.name,
+
+'FILE_NAME' = mf.name,
+
+'FILE_TYPE' = mf.type_desc,
+
+'FILE_PATH' = mf.physical_name
+
+FROM
+
+sys.databases db
+
+INNER JOIN sys.master_files mf
+
+ON db.database_id = mf.database_id 
+
+######################
+
+#the latency for reads and writes in milliseconds and when it comes to SharePoint, anything over 20-25 milliseconds is bad
+
+SELECT [Drive],
+
+CASE
+
+WHEN num_of_reads = 0 THEN 0
+
+ELSE (io_stall_read_ms/num_of_reads)
+
+END AS [Read Latency],
+
+CASE
+
+WHEN io_stall_write_ms = 0 THEN 0
+
+ELSE (io_stall_write_ms/num_of_writes)
+
+END AS [Write Latency],
+
+CASE
+
+WHEN (num_of_reads = 0 AND num_of_writes = 0) THEN 0
+
+ELSE (io_stall/(num_of_reads + num_of_writes))
+
+END AS [Overall Latency],
+
+CASE
+
+WHEN num_of_reads = 0 THEN 0
+
+ELSE (num_of_bytes_read/num_of_reads)
+
+END AS [Avg Bytes/Read],
+
+CASE
+
+WHEN io_stall_write_ms = 0 THEN 0
+
+ELSE (num_of_bytes_written/num_of_writes)
+
+END AS [Avg Bytes/Write],
+
+CASE
+
+WHEN (num_of_reads = 0 AND num_of_writes = 0) THEN 0
+
+ELSE ((num_of_bytes_read + num_of_bytes_written)/(num_of_reads + num_of_writes))
+
+END AS [Avg Bytes/Transfer]
+
+FROM (SELECT LEFT(mf.physical_name, 2) AS Drive, SUM(num_of_reads) AS num_of_reads,
+
+SUM(io_stall_read_ms) AS io_stall_read_ms, SUM(num_of_writes) AS num_of_writes,
+
+SUM(io_stall_write_ms) AS io_stall_write_ms, SUM(num_of_bytes_read) AS num_of_bytes_read,
+
+SUM(num_of_bytes_written) AS num_of_bytes_written, SUM(io_stall) AS io_stall
+
+FROM sys.dm_io_virtual_file_stats(NULL, NULL) AS vfs
+
+INNER JOIN sys.master_files AS mf WITH (NOLOCK)
+
+ON vfs.database_id = mf.database_id AND vfs.file_id = mf.file_id
+
+GROUP BY LEFT(mf.physical_name, 2)) AS tab
+
+ORDER BY [Overall Latency] OPTION (RECOMPILE); 
+
+######################
+
+#find orphaned sites present in farm config db
+
+Use TEMPDB
+
+Drop table orphanlist
+
+CREATE TABLE [dbo].[orphanlist](
+
+[farm] [varchar](250) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+
+[databasename] [varchar](250) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+
+[SiteID] [uniqueidentifier] NULL,
+
+[sitepath] [varchar](250) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+
+[type] [varchar](250) COLLATE SQL_Latin1_General_CP1_CI_AS NULL
+
+)
+
+drop table orphan_hopper
+
+declare
+
+@dbname as varchar(250),
+
+@cmdstr as varchar(2000),
+
+@dbid as varchar(250),
+
+@configdb as varchar(250)
+
+select @configdb = 'YOUR_config_db_HERE'
+
+select @cmdstr =
+
+'select distinct b.name as ''databasename'', b.id as ''dbid'' into orphan_hopper
+
+from
+
+[' + @configdb + '].dbo.sitemap as a inner join
+
+[' + @configdb + '].dbo.objects as b on a.databaseid=b.id inner join
+
+[' + @configdb + '].dbo.objects as c on c.id=a.applicationid inner join
+
+[' + @configdb + '].dbo.objects as d on b.parentid=d.id inner join
+
+[' + @configdb + '].dbo.objects as e on d.parentid=e.id '
+
+exec (@cmdstr)
+
+DECLARE DBCursor CURSOR For
+
+Select databasename, dbid
+
+From orphan_hopper
+
+OPEN DBCursor
+
+FETCH NEXT FROM DBCursor into @DBName, @dbid
+
+WHILE @@FETCH_STATUS =0
+
+BEGIN
+
+INSERT INTO orphanlist([Type], farm, databasename,[sitepath], SiteID)
+
+EXEC
+
+('
+
+select ''Potential ConfigDB orphan:'' + '''+@dbname+''' as [Type], '''+@configdb+''' as [farm], '''+@dbname+''' as [databasename],path as [sitepath], id as [SiteID] from ['+@configdb+'].dbo.sitemap where id not in (select id from ['+@dbname+'].dbo.sites) and databaseid = '''+@dbid+'''
+
+union
+
+select ''Potential ConfigDB orphan:'' + '''+@dbname+''' as [Type], '''+@configdb+''' as [farm], '''+@dbname+''' as [databasename],path as [sitepath], id as [SiteID] from
+
+['+@configdb+'].dbo.sitemap where id not in (select siteid from ['+@dbname+'].dbo.webs where parentwebid is null) and databaseid = '''+@dbid+'''
+
+union
+
+select ''Potential ContentDB orphans:'' + '''+@dbname+''' as [Type], '''+@configdb+''' as [farm], '''+@dbname+''' as [databasename],fullurl as [sitepath], siteid as [SiteID] from ['+@dbname+'].dbo.webs where parentwebid is null and siteid not in (select id from ['+@configdb+'].dbo.sitemap where databaseid = '''+@dbid+''')
+
+union
+
+select ''Potential ContentDB orphan:'' + '''+@dbname+''' as [Type], '''+@configdb+''' as [farm], '''+@dbname+''' as [databasename],fullurl as [sitepath], siteid as [SiteID] from ['+@dbname+'].dbo.webs where parentwebid is null and siteid not in (select id from ['+@dbname+'].dbo.sites)
+
+')
+
+FETCH NEXT FROM DBCursor into @DBName, @dbid
+
+END
+
+CLOSE DBCursor
+
+DEALLOCATE DBCursor
+
+select * from orphanlist 
+
+######################
+
+#Find log sizes
+
+dbcc sqlperf(logspace)
+
+######################
+
+#Getting the SQL Powershell Drive
+
+import-module sqlps –disableNameChecking 
+
+######################
+
+#Find the name of the SQL Drive
+
+Get-PSDrive
+
+######################
+
+#Find out when logins were last changed
+
+Change directory to the default instance (e.g. sql\<servername>\default)
+
+dir logins | ? {$_.name -match "^contoso"} | Select Name, CreateDate, DateLastModified | fl 
+
+######################
+
+#Find database info and pipe to powergrid
+
+Change directory to the default instance (e.g. sql\<servername>\default)
+dir databases | sort size | select Name, createdate, status, recoverymodel, size, owner | out-gridview 
+
+######################
+
+#Install SSRS and proxy 
+
+Install-SPRSService
+Install-SPRSServiceProxy
+
+######################
+
+#Start SSRS service instances
+
+Get-SPserviceinstance -all |where {$_.TypeName -like "SQL Server Reporting*"} | Start-SPServiceInstance
+
+######################
+
+#The end

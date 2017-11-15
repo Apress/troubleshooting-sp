@@ -1,0 +1,269 @@
+######################
+
+#Is this a host header site collection, err host named site collection
+
+(Get-SPSite <URL>).HostHeaderIsSiteName
+
+######################
+
+#Finding Service application pools
+
+Get-SPServiceApplicationPool | ft name, id -auto -wrap
+
+######################
+
+#Finding service applications sorted by ID
+
+Get-SPServiceApplication | sort ID
+
+######################
+
+#Testing outgoing mail from powershell
+
+Send-MailMessage -to "recipient@anothersharepointblog.com" -from "SharePoint@anothersharepointblog.com" -Subject "Test" -body "Test for Send-MailMessage" -SmtpServer <Hostname>
+
+######################
+
+#Find all the lists and libraries that have mail enabled
+
+$SPWebApp = Get-SPWebApplication http://URLtoYourWebApplication
+#creates a text file named Email-enabled-lists.txt
+"E-Mail,List,Site" > "EMail-Enabled.txt" #Write the Headers in to a text file
+foreach ($SPsite in $SPwebApp.Sites)  # get the collection of site collections
+{
+	foreach($SPweb in $SPsite.AllWebs)  # get the collection of sub sites
+	{
+	foreach ($SPList in $SPweb.Lists) # get the lists in each sub site
+		{
+		if ( ($splist.CanReceiveEmail) -and ($SPlist.EmailAlias) )
+		{
+# Give some feedback to admin
+ WRITE-HOST "E-Mail -" $SPList.EmailAlias "is configured for the list "$SPlist.Title "in "$SPweb.Url
+ #Append the data to the txt file
+ $SPList.EmailAlias + "," + $SPlist.Title +"," + $SPweb.Url >> EMail-Enabled-lists.txt  		}
+	}
+}
+}
+
+######################
+
+#Finding the ID of your lists
+
+$site = get-spsite http://portal.contoso.com
+$site.allwebs.lists | ft title, id
+
+######################
+
+#Sending the output to a file
+
+$site.allwebs.lists | ft title, id | out-file c:\myfile.txt
+
+######################
+
+#Changing the title of a list
+
+$web = get-SPWeb http://portal.contoso.com/news
+$Imagelist = $web.lists | ? {$_.id -eq "300a9bf8-341c-4a2a-a5fc-fae9197b45c5"}
+$Imagelist.title
+#Returns the list title Images
+$Imagelist.title = "Cool Images"
+$Imagelist.title
+#Returns the list title Cool Images
+$Imagelist.update()
+
+######################
+
+#Resetting IIS across entire farm
+
+############################################################################################################################################ 
+# This Script allows you to do an IIS RESET to all the servers in a SharePoint Farm 
+# required parameters: N/A 
+############################################################################################################################################ 
+If ((Get-PSSnapIn -Name Microsoft.SharePoint.PowerShell -ErrorAction SilentlyContinue) -eq $null )  
+{Add-PSSnapIn -Name Microsoft.SharePoint.PowerShell} 
+ $host.Runspace.ThreadOptions = "ReuseThread" 
+#Definition of the function that performs the IIS RESET in all the servers 
+function Do-IISreset 
+{     
+    try 
+    {         
+        #Getting the servers where the IISReset is going to be done 
+        $spServers= Get-SPServer | ? {$_.Role -eq "Application"} 
+        foreach ($spServer in $spServers) 
+        {             
+            Write-Host "Doing IIS Reset in server $spServer" -f blue 
+            Iisreset $spServer /noforce "\\"$_.Address 
+            iisreset $spServer /status "\\"$_.Address 
+        }         
+        Write-Host "IIS Reset completed successfully!!" -f blue   
+    } 
+    catch [System.Exception] 
+    { 
+        write-host -f red $_.Exception.ToString() 
+    } 
+} 
+Start-SPAssignment –Global 
+#Calling the function 
+Do-IISReset 
+Stop-SPAssignment –Global 
+ Remove-PSSnapin Microsoft.SharePoint.PowerShell
+
+######################
+
+#finding the service that causes sharepoint to house web sites
+
+Get-SPServiceInstance | ? {$_.typename -like "Microsoft SharePoint foundation web*"} | ft typename, status, server –wrap
+
+######################
+
+#Finding index location
+
+$ssa = Get-SPServiceApplication –Name “<Search Service Application>”
+$active = Get-SPEnterpriseSearchTopology -SearchApplication $ssa -Active
+Get-SPEnterpriseSearchComponent -SearchTopology $active 
+
+######################
+
+#Finding the name of the search service application
+
+Get-SPServiceApplication | ? {$_.typename –like “Search*”}
+
+Get-SPServiceApplication | ? {$_.typename –like “Search*”} | ft displayname 
+
+######################
+
+#Finding index location
+
+$ssa = Get-SPEnterpriseSearchServiceInstance
+
+$ssa.Components
+
+######################
+
+#Finding the productkey of the installed
+
+function Search-RegistryKeyValues {
+param(
+[string]$path,
+[string]$valueName
+)
+Get-ChildItem $path -recurse -ea SilentlyContinue |
+% {
+if ((Get-ItemProperty -Path $_.PsPath -ea SilentlyContinue) -match $valueName)
+{
+$_.PsPath
+}
+}
+}
+# find registry key that has value "digitalproductid"
+# 32-bit versions
+$key = Search-RegistryKeyValues "hklm:\software\microsoft\office" "digitalproductid"
+if ($key -eq $null) {
+# 64-bit versions
+$key = Search-RegistryKeyValues "hklm:\software\Wow6432Node\microsoft\office" "digitalproductid"
+if ($key -eq $null) {Write-Host "MS Office is not installed.";break}
+}
+$valueData = (Get-ItemProperty $key).digitalproductid[52..66]
+# decrypt base24 encoded binary data
+$productKey = ""
+$chars = "BCDFGHJKMPQRTVWXY2346789"
+for ($i = 24; $i -ge 0; $i--) {
+$r = 0
+for ($j = 14; $j -ge 0; $j--) {
+$r = ($r * 256) -bxor $valueData[$j]
+$valueData[$j] = [math]::Truncate($r / 24)
+$r = $r % 24
+}
+$productKey = $chars[$r] + $productKey
+if (($i % 5) -eq 0 -and $i -ne 0) {
+$productKey = "-" + $productKey
+}
+}
+Write-Host "MS Office Product Key:" $productKey
+
+
+######################
+
+#Finding the SKU of the installed version
+
+Function Get-RegistryKeyPropertiesAndValues
+{
+  <#
+   .Synopsis
+    This function accepts a registry path and returns all reg key properties and values
+   .Description
+    This function returns registry key properties and values.
+   .Example
+    Get-RegistryKeyPropertiesAndValues -path ‘HKCU:\Volatile Environment’
+    Returns all of the registry property values under the \volatile environment key
+   .Parameter path
+    The path to the registry key
+   .Notes
+    NAME:  Get-RegistryKeyPropertiesAndValues
+    AUTHOR: Ed Wilson, msft
+    LASTEDIT: 05/09/2012 15:18:41
+    KEYWORDS: Operating System, Registry, Scripting Techniques, Getting Started
+    HSG: 5-11-12
+   .Link
+     Http://www.ScriptingGuys.com/blog
+ #Requires -Version 2.0
+ #>
+
+ Param(
+  [Parameter(Mandatory=$true)]
+  [string]$path)
+ Push-Location
+ Set-Location -Path $path
+ Get-Item . |
+ Select-Object -ExpandProperty property |
+ ForEach-Object {
+ New-Object psobject -Property @{“property”=$_;
+    “Value” = (Get-ItemProperty -Path . -Name $_).$_}}
+ Pop-Location
+}
+$products = @{
+    "BEED1F75-C398-4447-AEF1-E66E1F0DF91E" = "SharePoint Foundation 2010";
+    "1328E89E-7EC8-4F7E-809E-7E945796E511" = "Search Server Express 2010";
+    "B2C0B444-3914-4ACB-A0B8-7CF50A8F7AA0" = "SharePoint Server 2010 Standard Trial";
+    "3FDFBCC8-B3E4-4482-91FA-122C6432805C" = "SharePoint Server 2010 Standard";
+    "88BED06D-8C6B-4E62-AB01-546D6005FE97" = "SharePoint Server 2010 Enterprise Trial";
+    "D5595F62-449B-4061-B0B2-0CBAD410BB51" = "SharePoint Server 2010 Enterprise";
+    "BC4C1C97-9013-4033-A0DD-9DC9E6D6C887" = "Search Server 2010 Trial";
+    "08460AA2-A176-442C-BDCA-26928704D80B" = "Search Server 2010";
+    "84902853-59F6-4B20-BC7C-DE4F419FEFAD" = "Project Server 2010 Trial";
+    "ED21638F-97FF-4A65-AD9B-6889B93065E2" = "Project Server 2010";
+    "926E4E17-087B-47D1-8BD7-91A394BC6196" = "Office Web Apps 2010";
+    "35466B1A-B17B-4DFB-A703-F74E2A1F5F5E" = "Project Server 2013"; 
+    "BC7BAF08-4D97-462C-8411-341052402E71" = "Project Server 2013 Preview"; 
+    "C5D855EE-F32B-4A1C-97A8-F0A28CE02F9C" = "SharePoint Server 2013";
+    "CBF97833-C73A-4BAF-9ED3-D47B3CFF51BE" = "SharePoint Server 2013 Preview";
+    "B7D84C2B-0754-49E4-B7BE-7EE321DCE0A9" = "SharePoint Server 2013 Enterprise";
+    "298A586A-E3C1-42F0-AFE0-4BCFDC2E7CD0" = "SharePoint Server 2013 Enterprise Preview";
+    "D6B57A0D-AE69-4A3E-B031-1F993EE52EDC" = "Microsoft Office Online";
+    "9FF54EBC-8C12-47D7-854F-3865D4BE8118" = "SharePoint Foundation 2013";
+    "716578D2-2029-4FF2-8053-637391A7E683" = "SharePoint 2016 Enterprise";
+    "4F593424-7178-467A-B612-D02D85C56940" = "SharePoint 2016 Standard";
+    "435d4d60-f4cf-421d-abc8-129e4b57f7a6" = "SharePoint 2016 Trail";
+    "5DB351B8-C548-4C3C-BFD1-82308C9A519B" = "SharePoint 2016 Trail"
+ }
+ $registryPath = "HKLM:software\Microsoft\Shared Tools\Web Server Extensions\$((Get-SPFarm).BuildVersion.Major).0\WSS\InstalledProducts"
+ Get-RegistryKeyPropertiesAndValues -path $registryPath | 
+    ForEach-Object { Write-Host "Installed product: $($products.Get_Item($_.value)) (SKU ID: $($_.value))" }
+ Write-Host "Installed version: $((Get-SPFarm).BuildVersion)" 
+
+######################
+
+#Find the Central Admin URL
+
+Get-ItemProperty -Path "HKLM:HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Shared Tools\Web Server Extensions\15.0\WSS\" -Name CentralAdministrationURL | select CentralAdministrationURL
+
+######################
+
+#Change the Central Admin URL in registry
+
+$CentralAdminURL = "http://your-URL:5000/default.aspx"
+Set-ItemProperty -Path "HKLM:HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Shared Tools\Web Server Extensions\15.0\WSS\" -Name CentralAdministrationURL -Value $CentralAdminURL
+
+######################
+
+#

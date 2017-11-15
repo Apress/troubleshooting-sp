@@ -1,0 +1,533 @@
+######################
+
+#Grant access to process identity to content databases in a web application
+
+$webApp = Get-SPWebApplication http://portal.contoso.com
+$webApp.GrantAccessToProcessIdentity("CONTOSO\2013svcapps")
+
+######################
+
+#Tell the SharePoint farm to use Excel Services
+
+New-SPWOPISuppressionSetting -extension xlsx -action view
+New-SPWOPISuppressionSetting -extension xls -action view
+
+######################
+
+#Remove Wopi binding from SharePoint
+
+Remove-SPWopiBinding -All:$true
+
+######################
+
+#Remove host from office web apps farm
+
+Remove-OfficeWebAppsMachine
+
+######################
+
+#new office web apps farm using SSL
+
+New-OfficeWebAppsFarm –InternalURL https://owa.contoso.com -ExternalUrl https://owa.contoso.com -EditingEnabled -CertificateName owa
+
+######################
+
+#Remove host from office web apps farm
+
+Repair-OfficeWebAppsFarm
+
+######################
+
+#Find hidden service instances
+
+ (get-spfarm).Servers["<serverName>"].ServiceInstances | where {$_.hidden -eq "true"} | ft typename, status
+
+(get-spfarm).Servers["2013appw2k12"].ServiceInstances | where {$_.hidden -eq "true"} | ft typename, status
+
+######################
+
+# Find the last 10,000 times that a timer job has failed and pump it into a powergrid
+
+##Find Failed Timer Job History Entries
+	$Timers = Get-SPTimerJob | where { $_.HistoryEntries.Status -eq “Failed” }
+	     ForEach ($Timer in $Timers)
+	           {
+	           Write-Host $Timer is processing -foregroundcolor Blue
+	           $Output += $Timer.HistoryEntries | select -first 10000 -Property JobDefinitionTitle, JobDefinitionId, Status,StartTime,EndTime,ErrorMessage, WebApplicationName, WebApplicationId, ServiceId, ServerId 
+	           } 
+
+######################
+
+#Get history for a timer job based on Job ID
+
+Get-SPTimerJob -Identity "80074ddf-ef54-46d3-a186-feaec4e4d2f4").HistoryEntries | select -first 10
+
+######################
+
+#Get history for a timer job based on Job ID and put into a table
+
+Get-SPTimerJob -Identity "80074ddf-ef54-46d3-a186-feaec4e4d2f4").HistoryEntries | select -first 200 | Format-Table -Property Status,StartTime,EndTime,ErrorMessage –AutoSize
+
+######################
+
+#Get history for a timer job based on Job ID and put into a table and then put into a power grid
+
+Get-SPTimerJob -Identity "80074ddf-ef54-46d3-a186-feaec4e4d2f4").HistoryEntries | select -first 200 | Format-Table -Property Status,StartTime,EndTime,ErrorMessage –AutoSize | Out-GridView
+
+######################
+
+#Get history for a specific job after obtaining the job definition ID
+
+Get-SPTimerJob -Identity "80074ddf-ef54-46d3-a186-feaec4e4d2f4").HistoryEntries | select -first 200 | Format-Table -Property Status,StartTime,EndTime,ErrorMessage –AutoSize
+
+######################
+
+#Stop and start timers in a farm
+
+
+# execute mode of Stop, Start, or Restart
+$executeMode = "Start"
+# comma separate server names
+$servers = "Server-WFE,Server-WFE1,Server-WFE2,Server-APP,Server-APP1,Server-APP2"
+
+foreach($s in $servers.Split(','))
+  {
+    Try
+    {
+        Write-Host "Getting Timer Service for " $s
+        $service = Get-WmiObject -ComputerName $s Win32_Service -Filter "Name='SPTimerv4'" 
+        Write-Host "Got Service: " $service
+        if($executeMode.ToLower() -ne "start")
+        {
+            #this is a stop or a restart, so stop the timer
+            Write-Host "Attempting to Stop Timer on " $s
+            $service.InvokeMethod("StopService",$null)
+            Write-Host "Timer Stopped on " $s
+        }
+        if($executeMode.ToLower() -ne "stop")
+        {
+           #this is a start or a restart so start the timer
+           Write-Host "Attempting to Start Timer on " $s
+           $service.InvokeMethod("StartService",$null)
+           Write-Host "Timer Started on  " $s           
+        }
+    }
+    Catch [System.exception]
+    {
+       "Exception occurred" 
+    }
+    
+  }
+
+
+######################
+
+#Get a new log file on a server and then turn up logging level on entire farm
+
+New-SPLogFile
+Set-SPLoglevel -traceseverity VerboseEx
+
+######################
+
+#Set logging back to defaults
+
+Clear-SPLogLevel
+
+######################
+
+#Install Simple Mail Transfer Protocol
+
+Import-Module ServerManager
+
+Add-WindowsFeature SMTP-Server
+
+######################
+
+#Set SMTP to automatic and started
+
+Set-Service SMTPSVC -startuptype "Automatic"
+Start-Service smtpsvc
+
+
+######################
+
+#Testing outgoing email
+
+Send-MailMessage -To "<enter an email address here>" -From "Sharepoint@contoso.com" -Subject "Testing Smtp Mail" -Body "Message Body" -SmtpServer "<Enter Server Name here>"
+
+######################
+
+#Create new exchange connector on Exchange server (assumes mx record exists)
+
+New-SendConnector -Name 'SharePoint' -Usage 'Custom' -AddressSpaces 'SMTP:sharepoint.contoso.com;1' -IsScopedConnector $false -DNSRoutingEnabled $true -UseExternalDNSServersEnabled $false -SourceTransportServers 'EXCHANGE'
+
+######################
+
+#Grant access to process identity - Note: this also works with excel services and visio
+
+$webApp = Get-SPWebApplication "<web app url>"
+$webApp.GrantAccessToProcessIdentity("<service app account>")
+
+
+######################
+
+#Find web application for a database
+
+(Get-SPContentDatbase <databaseName>).webapplication
+
+######################
+
+#Upgrade all the databases attached to a web application
+
+$wa = Get-SPWebApplication -Identity "<WA URL>"
+foreach($ContentDB in $wa.ContentDatabases)
+{
+   Upgrade-SPContentDatabase -id $ContentDB –confirm:$false
+}
+
+######################
+
+#Mount hundreds of content databases back to a web application
+
+add-pssnapin microsoft.sharepoint.powershell -ea 0
+ 
+$OutputFile = "E:\upgrade_output_logs\MountResults.txt"
+$timefile = "E:\upgrade_output_logs\times.txt"
+ 
+function OutRedirect
+ 
+{
+## DEFAULT Values
+$SQLInstance = "SharePointSQL"
+$WebApp = "http://hnsc.OaklynOrion.local"
+$InputCSV = "E:\MountData\InputDBs.txt"
+$DestinationPath = "E:\upgrade_output_logs"
+$SPLogFileLoc = "D:\Logs\SharePoint"
+ 
+## Set DB SERVER INSTANCE ##
+ 
+## Import CSV
+$DBNameFile = Import-csv $inputCSV
+ 
+ 
+## Mount each DB in InputCSV
+ForEach ($item in $DBNameFile){
+                $time = Measure-Command { Mount-SPContentDatabase –Name $item.ContentDB –WebApplication $WebApp -DatabaseServer $SQLInstance -Outvariable mountoutput -errorvariable mounterrors}
+ 
+                write-output "$($item.ContentDB) took (Hours:Minutes::Seconds) $($time.Hours):$($time.Minutes)::$($time.Seconds) and $($time.Milliseconds) milliseconds","" |out-file $timefile -append -NoClobber 
+                write-output "$($item.ContentDB) took (Hours:Minutes::Seconds) $($time.Hours):$($time.Minutes)::$($time.Seconds) and $($time.Milliseconds) milliseconds",""
+                write-output "The following output was produced by the mount command:", $mountoutput,""
+                write-output "The following error data was provided:",$mounterrors
+ 
+  ## Move Log from each mount/upgrade operation
+                Set-Location $SPLogFileLoc
+ 
+                $files = Get-ChildItem -Path $SPLogFileLoc "Upgrade*"
+ 
+                ForEach ($file in $files) {
+                                $oldname = $file.name
+                                $newname = "$($item.ContentDB)-$($oldname)"
+                                Copy-Item $file "$($destinationpath)/$($newname)"
+                                Rename-Item $file $newname
+                                write-output "`n$($item.ContentDB) has been attached, the logs for the mount operation have been copied to $($destinationpath) and begin with the name of the database"
+                                }
+                write-output "################################################################################################`n"
+                Set-Location $home
+ 
+                }
+}
+OutRedirect|out-file $OutputFile
+
+######################
+
+#removing an orphaned database
+
+$wa = Get-SPWebApplication http://spwebApplicationUrl
+$wa.ContentDatabase
+
+# The spwebApplicationURL equals the web application that it was previously attached.  If the database is truly orphaned, this $wa.ContentDatabase will return a GUID that you can use to delete the orphaned entry with this command:
+
+$wa.ContentDatabases.Delete("GUID_Value")
+
+# After you run this command, go ahead and refresh the sites in the configuration database by running this oneliner:
+
+Get-spcontentdatabase -webapplication http://spwebapplicationURL | % {$_.RefreshsitesInConfigurationDatabase()}
+
+##################################################
+
+######################
+
+#clear stuck wsp deployments
+
+stsadm –o execadmsvcjobs
+
+######################
+
+#Post setup configuration from the cli
+
+PSConfig.exe -cmd upgrade -inplace b2b -force -cmd applicationcontent -install -cmd installfeatures
+
+######################
+
+#Upgrade content databases that have missing features
+
+Upgrade-SPContentDatabase <DBName> -SkipIntegrityChecks
+
+######################
+
+#Cause the timerjob that updated KB's on server to the config db
+
+Get-SPProduct –local 
+
+######################
+
+#Update publishing accounts in object mode
+
+$wa = Get-SPWebApplication -Identity "<WebApplication>"
+$wa.Properties["portalsuperuseraccount"] = "<SuperUser>"
+$wa.Properties["portalsuperreaderaccount"] = "<SuperReader>"
+$wa.Update()
+
+######################
+
+#Update all zones for the user policy for publishing
+
+
+$wa = Get-SPWebApplication https://www.stacylab.com
+$policy = $wa.Policies.Add("i:0#.w|STACYLAB\SP_CacheUser", "Portal Super User") 
+$policyRole = $wa.PolicyRoles.GetSpecialRole("FullControl") 
+$policy.PolicyRoleBindings.Add($policyRole) 
+$policy = $wa.Policies.Add("i:0#.w|STACYLAB\SP_CacheRead", "Portal Super Reader") 
+$policyRole = $wa.PolicyRoles.GetSpecialRole("FullRead") 
+$policy.PolicyRoleBindings.Add($policyRole) 
+$wa.Update()
+
+######################
+
+#Update only the default zone for the user policy for the publishing accounts
+
+$wa = Get-SPWebApplication https://www.stacylab.com
+ 
+$zp = $wa.ZonePolicies(“Default”)
+ 
+$policy = $zp.Add("i:0#.w|STACYLAB\SP_CacheUser", "Portal Super User") 
+ 
+$policyRole = $wa.PolicyRoles.GetSpecialRole("FullControl") 
+ 
+$policy.PolicyRoleBindings.Add($policyRole) 
+ 
+$policy = $zp.Add("i:0#.w|STACYLAB\SP_CacheRead", "Portal Super Reader") 
+ 
+$policyRole = $wa.PolicyRoles.GetSpecialRole("FullRead") 
+ 
+$policy.PolicyRoleBindings.Add($policyRole) 
+ 
+$wa.Update() 
+
+######################
+
+#Disable publishing on a site collection and all subwebs
+
+#Step 1: Then Disable the SharePoint Server Publishing feature to all webs in Site collection.
+$siteUrl = "http://sharepoint/sites/projects"
+$siteCollection = Get-SPSite $siteUrl #Into Site Collection level
+$siteCollection | Get-SPWeb -limit all | ForEach-Object{
+write-host "De-Activating the PublishingWeb feature on " $_.Url
+Disable-SPFeature -Identity "PublishingWeb" -Url $_.Url -confirm:$false #where the PublishingWeb is the internal name of the SharePoint Server Publishing feature
+write-host "De-Activating the PublishingWeb feature on " $_.Url
+}
+$siteCollection.Dispose()
+#Step 2: The SharePoint Server Publishing Infrastructure Feature needs to be Disabled in site collection level
+$PublishingSitefeature = Get-SPFeature PublishingSite #where the PublishingSite is the inernal name of the SharePoint Server Publishing Infrastructure Feature
+write-host "The feature name is " $PublishingSitefeature.DisplayName
+$siteUrl = "http://sharePoint/sites/projects"
+$siteCollection = Get-SPSite $siteUrl #Into Site Collection level
+write-host "De-Activating " $PublishingSitefeature.DisplayName " on "  $siteCollection.Url
+Disable-SPFeature $PublishingSitefeature -Url $siteCollection.Url -confirm:$false #Enable the feature to the site collection
+write-host "Activated " $PublishingSitefeature.DisplayName " on "  $siteCollection.Url
+$siteCollection.Dispose()
+
+######################
+
+#Enable publishing on a site collection and all sub-webs
+
+#Step 1: The SharePoint Server Publishing Infrastructure Feature needs to be enabled in site collection level
+$PublishingSitefeature = Get-SPFeature PublishingSite #where the PublishingSite is the inernal name of the SharePoint Server Publishing Infrastructure Feature
+write-host "The feature name is " $PublishingSitefeature.DisplayName
+$siteUrl = "http://sharePoint/sites/projects"
+$siteCollection = Get-SPSite $siteUrl #Into Site Collection level
+write-host "Activating " $PublishingSitefeature.DisplayName " on "  $siteCollection.Url
+Enable-SPFeature $PublishingSitefeature -Url $siteCollection.Url -confirm:$false #Enable the feature to the site collection
+write-host "Activated " $PublishingSitefeature.DisplayName " on "  $siteCollection.Url
+$siteCollection.Dispose()
+
+
+#Step 2: Then enable the SharePoint Server Publishing feature to all webs in Site collection.
+$siteUrl = "http://sharepoint/sites/projects"
+$siteCollection = Get-SPSite $siteUrl #Into Site Collection level
+$siteCollection | Get-SPWeb -limit all | ForEach-Object{
+write-host "Activating the PublishingWeb feature on " $_.Url
+Enable-SPFeature -Identity "PublishingWeb" -Url $_.Url -confirm:$false #where the PublishingWeb is the internal name of the SharePoint Server Publishing feature
+write-host "Activated the PublishingWeb feature on " $_.Url
+}
+$siteCollection.Dispose()
+
+######################
+
+#Disable Minimal download strategy on all sub sites in a site collection
+
+$siteCollection = Get-SPSite http://getinto.contoso.com
+foreach ($site in $siteCollection)
+{
+$webs = $site | Get-SPweb -limit all
+foreach ($web in $webs)
+    {
+    $url = $web.URL
+    write-host "Web URL = " $url -foregroundcolor "blue"
+    Disable-SPFeature -Identity  "87294c72-f260-42f3-a41b-981a2ffce37a" -url $url -Confirm:$False
+    }
+
+}
+
+######################
+
+#Flush the blob cache
+
+Write-Host -ForegroundColor White " - Enabling SP PowerShell cmdlets..."
+ 
+If ((Get-PsSnapin |?{$_.Name -eq "Microsoft.SharePoint.PowerShell"})-eq $null)
+{
+$PSSnapin = Add-PsSnapin Microsoft.SharePoint.PowerShell -ErrorAction SilentlyContinue | Out-Null
+}
+ 
+$webAppall = Get-SPWebApplication
+    foreach ($URL in $webAppall) 
+        {
+        $webApp = Get-SPWebApplication $URL
+        [Microsoft.SharePoint.Publishing.PublishingCache]::FlushBlobCache($webApp)
+        Write-Host "Flushed the BLOB cache for:" $webApp
+        }
+######################
+
+#find web config modification and clear them
+
+$wa = Get-SPWebApplication -Identity http://yourWebAppURL
+$wa.webConfigModifications
+
+$wcm = $wa.WebConfigModifications | Where { $_.Name -eq "<name of entry to remove>" }
+$wa.WebConfigModifications.Clear($wcm)
+$wa.Update()
+
+
+## OR if they all suck ##
+###########MAKE SURE THEY ARE ALL BAD###############
+$wa.WebConfigModifications.Clear()
+$wa.Update()
+
+######################
+
+#find solutions deployed to farm
+
+Get-SPSolution | sort lastoperationendtime | ft Displayname, LastOperationEndTime
+
+
+######################
+
+# Change the retention period
+
+Get-SPUsageDefinition | ForEach-Object {Set-SPUsageDefinition -Identity $_.name -DaysRetained <# of days>}
+
+######################
+
+# Change size of usage service application database
+
+$pages=Get-SPUsageDefinition -Identity “page requests” 
+$pages.MaxTotalSizeInBytes=12400000000 
+$pages.update()
+
+Get-spusageapplication | Set-SPUsageApplication –DatabaseServer <dbServer> –DatabaseName <newDBname>
+
+######################
+
+# Determine if using the new database
+
+(Get-spusageapplication).usagedatabase
+
+######################
+
+# Find usage logs directory
+
+(Get-SPUsageService).UsageLogDir
+
+######################
+
+# Restart the timer service
+
+Get-SPTimerJob job-timer-recycle | Start-SPTimerJob
+
+######################
+
+# find out if a usage definition is not enabled, for analytics and page requests
+
+$aud = Get-SPUsageDefinition | where {$_.Name -like “Analytics*”} 
+$aud | fl 
+ 
+$prud = Get-SPUsageDefinition | where {$_.Name -like “Page Requests”}  
+$prud | fl 
+
+######################
+
+# enable recievers for analytics and page requests
+
+if((Get-PSSnapin -Name Microsoft.SharePoint.PowerShell) -eq $null)
+{
+    Add-PSSnapin Microsoft.SharePoint.PowerShell
+}
+$aud = Get-SPUsageDefinition | where {$_.Name -like "Analytics*"}
+# if analytics usage definition receivers is empty then manually add back receiver
+if($aud.Receivers.Count -eq 0)
+{
+    $aud.Receivers.Add("Microsoft.Office.Server.Search.Applications, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c", "Microsoft.Office.Server.Search.Analytics.Internal.AnalyticsCustomRequestUsageReceiver")
+}
+# if analytics usage definition receiver is not enabled then enable it
+if($aud.EnableReceivers -eq $false)
+{
+    $aud.EnableReceivers = $true
+    $aud.Update()
+}
+$aud | fl
+
+$prud = Get-SPUsageDefinition | where {$_.Name -like "Page Requests"} 
+# if page requests usage definition receivers is empty then manually add back receiver
+if($prud.Receivers.Count -eq 0)
+{
+    $prud.Receivers.Add("Microsoft.Office.Server.Search.Applications, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c", "Microsoft.Office.Server.Search.Analytics.Internal.ViewRequestUsageReceiver") 
+}
+# if page requests usage definition receiver is not enabled then enable it
+if($prud.EnableReceivers -eq $false)
+{
+    $prud.EnableReceivers = $true
+    $prud.Update()
+}
+$prud | fl
+
+Get-SPTimerJob job-timer-recycle | Start-SPTimerJob
+
+
+######################
+
+# update a user's name using powershell
+
+$login= "i:0#.w|contoso\TestUser1"
+$site= "http://intranet.contoso.com/sites/abcsite" 
+Set-SPUser -Identity $login -web $site -SyncFromAD
+
+######################
+
+# Create user profile thumbnails
+
+Update-SPProfilePhotoStore -CreateThumbnailsForImportedPhotos 1 -MySiteHostLocation <enter mysite name here>
+
+######################
+
+# 
